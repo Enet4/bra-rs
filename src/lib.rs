@@ -1,0 +1,306 @@
+//! Buffered Random Access (BRA) provides easy random memory access to a
+//! sequential source of data. This is achieved by eagerly retaining all
+//! memory read from a given source, or by keeping a way to reset the
+//! source to the beginning for multiple passes.
+//!
+//! # Examples
+//! 
+//! ```
+//! use bra::EagerBufRead;
+//! 
+//! use std::io::Read;
+//! # fn get_reader() -> impl Read {
+//! #     std::io::repeat(1)
+//! # }
+//! # fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let reader = get_reader();
+//! let mut reader = EagerBufRead::new(reader);
+//! 
+//! // random access to bytes!
+//! let k: u8 = reader.get(12)?;
+//! // random slicing!
+//! let s: &[u8] = reader.slice(20..48)?;
+//! assert_eq!(s.len(), 28);
+//! // also functions as a buffered reader
+//! let mut chunk = [0; 20];
+//! reader.read_exact(&mut chunk)?;
+//! # Ok(())
+//! # }
+//! # run().unwrap();
+//! ```
+
+use std::io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult};
+use std::ops::Bound;
+use std::ops::RangeBounds;
+
+/// A buffered reader that eagerly retains all memory read into a buffer.
+/// 
+/// Like [`std::io::BufReader`], it fetches bytes from the source in bulk to
+/// reduce the number of actual reads. Moreover, it provides methods for
+/// reading a byte or slice of bytes at an arbitrary position, reading as many
+/// bytes as required to reach that position of the data stream, if they are
+/// not in memory already. The position indices are always relative to the
+/// position of the data source when it was passed to this construct via
+/// [`new`] or [`with_capacity`].
+/// 
+/// [`std::io::BufReader`]: https://doc.rust-lang.org/std/io/struct.BufReader.html
+/// [`new`]: ./struct.EagerBufRead.html#method.new
+/// [`with_capacity`]: ./struct.EagerBufRead.html#method.with_capacity
+pub struct EagerBufRead<R> {
+    inner: R,
+    buf: Vec<u8>,
+    consumed: usize,
+}
+
+impl<R> EagerBufRead<R>
+where
+    R: Read,
+{
+    /// Creates a new eagerly buffered reader with the given byte source.
+    pub fn new(src: R) -> Self {
+        EagerBufRead {
+            inner: src,
+            buf: Vec::new(),
+            consumed: 0,
+        }
+    }
+
+    /// Creates a new eagerly buffered reader with the given byte source and
+    /// the specified buffer capacity.
+    /// 
+    /// The buffer will be able to read approximately `capacity` bytes without
+    /// reallocating, although in practice this may choose to prefetch more
+    /// bytes.
+    pub fn with_capacity(src: R, capacity: usize) -> Self {
+        EagerBufRead {
+            inner: src,
+            buf: Vec::with_capacity(capacity),
+            consumed: 0,
+        }
+    }
+
+    /// Retrieves the internal reader, discarding the buffer in the process.
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
+
+    /// Retrieves the internal buffer in its current state, discarding the
+    /// reader in the process.
+    pub fn into_buffer(self) -> Vec<u8> {
+        self.buf
+    }
+
+    /// Fetches a single byte from the buffered data source. 
+    pub fn get(&mut self, index: usize) -> IoResult<u8> {
+        if let Some(v) = self.buf.get(index) {
+            Ok(*v)
+        } else {
+            self.prefetch_up_to(index + 1)?;
+
+            self.buf
+                .get(index)
+                .cloned()
+                .ok_or_else(|| IoError::new(IoErrorKind::Other, "Index out of bounds"))
+        }
+    }
+
+    /// Obtains a slice of bytes.
+    /// 
+    /// The range's end must be bound (e.g. `5..` is not supported).
+    /// 
+    /// # Error
+    /// 
+    /// Returns an I/O error if the range is out of the boundaries
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if the range is not end bounded.
+    pub fn slice<T>(&mut self, range: T) -> IoResult<&[u8]>
+    where
+        T: Clone,
+        T: RangeBounds<usize>,
+    {
+        let end = range.end_bound();
+        let e = match end {
+            Bound::Unbounded => {
+                unimplemented!("Unbounded end is currently not supported");
+            }
+            Bound::Excluded(&e) => e,
+            Bound::Included(&e) => e + 1,
+        };
+
+        let b = match range.start_bound() {
+            Bound::Unbounded => 0,
+            Bound::Excluded(&b) | Bound::Included(&b) => b,
+        };
+
+        self.prefetch_up_to(e)?;
+
+        if b > e || e > self.buf.len() {
+            Err(IoError::new(IoErrorKind::Other, "Index out of bounds"))
+        } else {
+            Ok(&self.buf[b..e])
+        }
+    }
+
+    /// Clears all memory of past reads. The reader will behave as if freshly
+    /// constructed, save for already prefetched data, so that no bytes are
+    /// lost. The following byte being read becomes the byte at index `#0`.
+    pub fn clear(&mut self) {
+        if self.consumed < self.buf.len() {
+            self.buf = self.buf[self.consumed..].to_vec();
+        }
+        self.consumed = 0;
+    }
+
+    /// Shrinks the internal buffer to minimal capacity.
+    pub fn shrink_to_fit(&mut self) {
+        self.buf.shrink_to_fit()
+    }
+
+    fn reserve_up_to(&mut self, index: usize) {
+        eprintln!("reserve_for({})", index);
+        let mut new_size = 16;
+        while new_size < index || new_size < self.buf.capacity() {
+            new_size *= 2;
+        }
+        let additional = new_size - self.buf.capacity();
+        if additional > 0 {
+            self.buf.reserve(additional);
+        }
+    }
+
+    fn data_to_read(&self) -> &[u8] {
+        &self.buf[self.consumed..]
+    }
+
+    fn prefetch_up_to(&mut self, i: usize) -> IoResult<()> {
+        eprintln!("prefetch_until({})", i);
+        self.reserve_up_to(i);
+        let mut l = 0;
+        while self.buf.len() <= i {
+            let b = self.fill_buf()?;
+            if b.len() == l {
+                // no extra data since last call, retreat
+                break;
+            } else {
+                // record length, continue fetching
+                l = b.len();
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<R> Read for EagerBufRead<R>
+where
+    R: Read,
+{
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        // we'll be reading from the buffer
+        let mut to_read = self.data_to_read();
+        if to_read.is_empty() {
+            eprintln!("Filling buffer...");
+            self.fill_buf()?;
+            to_read = self.data_to_read();
+            eprintln!("> {} bytes to be read", to_read.len());
+        }
+
+        let len = usize::min(to_read.len(), buf.len());
+        eprintln!("Reading {} bytes", len);
+        &mut buf[..len].copy_from_slice(&self.buf[self.consumed..self.consumed + len]);
+        self.consume(len);
+        Ok(len)
+    }
+}
+
+impl<R> BufRead for EagerBufRead<R>
+where
+    R: Read,
+{
+    fn fill_buf(&mut self) -> IoResult<&[u8]> {
+        if self.buf.capacity() == self.consumed {
+            self.reserve_up_to(self.buf.capacity() + 16);
+        }
+
+        let b = self.buf.len();
+        unsafe {
+            // safe because it's within the buffer's limits
+            // and we won't be reading uninitialized memory
+            self.buf.set_len(self.buf.capacity());
+        }
+        let buf = &mut self.buf[b..];
+
+        match self.inner.read(buf) {
+            Ok(o) => {
+                // take off the unwritten portion
+                self.buf.truncate(b + o);
+
+                Ok(&self.buf[self.consumed..])
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.consumed += amt;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EagerBufRead;
+    use std::io::Read;
+    #[test]
+    fn smoke_test() {
+        let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
+
+        let mut read = EagerBufRead::new(&data[..]);
+        let mut o = Vec::new();
+        read.read_to_end(&mut o).unwrap();
+
+        assert_eq!(o, &data);
+    }
+
+    #[test]
+    fn test_get() {
+        let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
+
+        let mut read = EagerBufRead::new(&data[..]);
+
+        assert_eq!(read.get(1).unwrap(), 2);
+        assert_eq!(read.get(2).unwrap(), 3);
+        assert_eq!(read.get(16).unwrap(), 50);
+        assert_eq!(read.get(10).unwrap(), 11);
+        assert!(read.get(17).is_err());
+    }
+
+    #[test]
+    fn test_slice() {
+        let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
+
+        let mut read = EagerBufRead::new(&data[..]);
+
+        assert_eq!(read.slice(0..0).unwrap(), &[]);
+        assert_eq!(read.slice(1..2).unwrap(), &[2]);
+        assert_eq!(read.slice(..=5).unwrap(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(read.slice(14..=16).unwrap(), &[15, 16, 50]);
+        assert_eq!(read.slice(10..12).unwrap(), &[11, 12]);
+        assert!(read.slice(7..18).is_err());
+        assert!(read.slice(6..5).is_err());
+    }
+
+    #[test]
+    fn arbitrary_get_infinite() {
+        const B: u8 = 0x33;
+        let mut read = EagerBufRead::new(std::io::repeat(B));
+
+        assert_eq!(read.get(4).unwrap(), B);
+        assert_eq!(read.get(13).unwrap(), B);
+        assert_eq!(read.get(24389).unwrap(), B);
+        assert_eq!(read.get(156).unwrap(), B);
+        assert_eq!(read.get(9006).unwrap(), B);
+        assert_eq!(read.get(2019).unwrap(), B);
+        assert_eq!(read.get(100000).unwrap(), B);
+    }
+}
