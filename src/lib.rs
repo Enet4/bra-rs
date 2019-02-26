@@ -1,20 +1,24 @@
 //! Buffered Random Access (BRA) provides easy random memory access to a
-//! sequential source of data. This is achieved by eagerly retaining all
+//! sequential source of data. This is achieved by greedily retaining all
 //! memory read from a given source, or by keeping a way to reset the
 //! source to the beginning for multiple passes.
 //!
 //! # Examples
 //! 
+//! [`GreedyBufReader`] can be either used as a buffered reader or as
+//! a random memory access descriptor. The amount of data read does
+//! not influence the relative index of the data unless the method
+//! [`clear`] is called.
+//!
 //! ```
-//! use bra::EagerBufRead;
-//! 
-//! use std::io::Read;
+//! # use bra::GreedyBufReader;
+//! # use std::io::Read;
 //! # fn get_reader() -> impl Read {
 //! #     std::io::repeat(1)
 //! # }
 //! # fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! let reader = get_reader();
-//! let mut reader = EagerBufRead::new(reader);
+//! let mut reader = GreedyBufReader::new(reader);
 //! 
 //! // random access to bytes!
 //! let k: u8 = reader.get(12)?;
@@ -33,7 +37,7 @@ use std::io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result 
 use std::ops::Bound;
 use std::ops::RangeBounds;
 
-/// A buffered reader that eagerly retains all memory read into a buffer.
+/// A buffered reader that greedily retains all memory read into a buffer.
 /// 
 /// Like [`std::io::BufReader`], it fetches bytes from the source in bulk to
 /// reduce the number of actual reads. Moreover, it provides methods for
@@ -44,35 +48,35 @@ use std::ops::RangeBounds;
 /// [`new`] or [`with_capacity`].
 /// 
 /// [`std::io::BufReader`]: https://doc.rust-lang.org/std/io/struct.BufReader.html
-/// [`new`]: ./struct.EagerBufRead.html#method.new
-/// [`with_capacity`]: ./struct.EagerBufRead.html#method.with_capacity
-pub struct EagerBufRead<R> {
+/// [`new`]: ./struct.GreedyBufReader.html#method.new
+/// [`with_capacity`]: ./struct.GreedyBufReader.html#method.with_capacity
+pub struct GreedyBufReader<R> {
     inner: R,
     buf: Vec<u8>,
     consumed: usize,
 }
 
-impl<R> EagerBufRead<R>
+impl<R> GreedyBufReader<R>
 where
     R: Read,
 {
-    /// Creates a new eagerly buffered reader with the given byte source.
+    /// Creates a new greedy buffered reader with the given byte source.
     pub fn new(src: R) -> Self {
-        EagerBufRead {
+        GreedyBufReader {
             inner: src,
             buf: Vec::new(),
             consumed: 0,
         }
     }
 
-    /// Creates a new eagerly buffered reader with the given byte source and
+    /// Creates a new greedy buffered reader with the given byte source and
     /// the specified buffer capacity.
     /// 
     /// The buffer will be able to read approximately `capacity` bytes without
     /// reallocating, although in practice this may choose to prefetch more
     /// bytes.
     pub fn with_capacity(src: R, capacity: usize) -> Self {
-        EagerBufRead {
+        GreedyBufReader {
             inner: src,
             buf: Vec::with_capacity(capacity),
             consumed: 0,
@@ -193,7 +197,7 @@ where
     }
 }
 
-impl<R> Read for EagerBufRead<R>
+impl<R> Read for GreedyBufReader<R>
 where
     R: Read,
 {
@@ -212,7 +216,7 @@ where
     }
 }
 
-impl<R> BufRead for EagerBufRead<R>
+impl<R> BufRead for GreedyBufReader<R>
 where
     R: Read,
 {
@@ -247,13 +251,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::EagerBufRead;
+    use super::GreedyBufReader;
     use std::io::Read;
     #[test]
     fn smoke_test() {
         let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
 
-        let mut read = EagerBufRead::new(&data[..]);
+        let mut read = GreedyBufReader::new(&data[..]);
         let mut o = Vec::new();
         read.read_to_end(&mut o).unwrap();
 
@@ -264,7 +268,7 @@ mod tests {
     fn test_get() {
         let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
 
-        let mut read = EagerBufRead::new(&data[..]);
+        let mut read = GreedyBufReader::new(&data[..]);
 
         assert_eq!(read.get(1).unwrap(), 2);
         assert_eq!(read.get(2).unwrap(), 3);
@@ -277,7 +281,7 @@ mod tests {
     fn test_slice() {
         let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
 
-        let mut read = EagerBufRead::new(&data[..]);
+        let mut read = GreedyBufReader::new(&data[..]);
 
         assert_eq!(read.slice(0..0).unwrap(), &[]);
         assert_eq!(read.slice(1..2).unwrap(), &[2]);
@@ -291,7 +295,7 @@ mod tests {
     #[test]
     fn arbitrary_get_infinite() {
         const B: u8 = 0x33;
-        let mut read = EagerBufRead::new(std::io::repeat(B));
+        let mut read = GreedyBufReader::new(std::io::repeat(B));
 
         assert_eq!(read.get(4).unwrap(), B);
         assert_eq!(read.get(13).unwrap(), B);
@@ -305,7 +309,7 @@ mod tests {
     #[test]
     fn test_clear() {
         let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
-        let mut read = EagerBufRead::new(&data[..]);
+        let mut read = GreedyBufReader::new(&data[..]);
 
         assert_eq!(read.get(0).unwrap(), 1);
         assert_eq!(read.get(8).unwrap(), 9);
