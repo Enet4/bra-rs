@@ -159,7 +159,6 @@ where
     }
 
     fn reserve_up_to(&mut self, index: usize) {
-        eprintln!("reserve_for({})", index);
         let mut new_size = 16;
         while new_size < index || new_size < self.buf.capacity() {
             new_size *= 2;
@@ -175,7 +174,6 @@ where
     }
 
     fn prefetch_up_to(&mut self, i: usize) -> IoResult<()> {
-        eprintln!("prefetch_until({})", i);
         self.reserve_up_to(i);
         let mut l = 0;
         while self.buf.len() <= i {
@@ -200,14 +198,11 @@ where
         // we'll be reading from the buffer
         let mut to_read = self.data_to_read();
         if to_read.is_empty() {
-            eprintln!("Filling buffer...");
             self.fill_buf()?;
             to_read = self.data_to_read();
-            eprintln!("> {} bytes to be read", to_read.len());
         }
 
         let len = usize::min(to_read.len(), buf.len());
-        eprintln!("Reading {} bytes", len);
         &mut buf[..len].copy_from_slice(&self.buf[self.consumed..self.consumed + len]);
         self.consume(len);
         Ok(len)
@@ -302,5 +297,36 @@ mod tests {
         assert_eq!(read.get(9006).unwrap(), B);
         assert_eq!(read.get(2019).unwrap(), B);
         assert_eq!(read.get(100000).unwrap(), B);
+    }
+
+    #[test]
+    fn test_clear() {
+        let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 50];
+        let mut read = EagerBufRead::new(&data[..]);
+
+        assert_eq!(read.get(0).unwrap(), 1);
+        assert_eq!(read.get(8).unwrap(), 9);
+        assert_eq!(read.get(17).unwrap(), 50);
+
+        let mut chunk = [0; 8];
+        read.read_exact(&mut chunk).unwrap();
+        assert_eq!(chunk, [1, 2, 3, 4, 5, 6, 7, 8]);
+
+        assert_eq!(read.get(0).unwrap(), 1);
+        assert_eq!(read.get(8).unwrap(), 9);
+        assert_eq!(read.get(17).unwrap(), 50);
+
+        read.clear();
+
+        assert_eq!(read.get(0).unwrap(), 9);
+        assert_eq!(read.get(8).unwrap(), 50);
+        assert!(read.get(17).is_err());
+
+        read.read_exact(&mut chunk).unwrap();
+        assert_eq!(chunk, [9, 10, 11, 12, 13, 14, 15, 16]);
+
+        assert_eq!(read.get(0).unwrap(), 9);
+        assert_eq!(read.get(8).unwrap(), 50);
+        assert!(read.get(17).is_err());
     }
 }
