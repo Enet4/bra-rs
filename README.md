@@ -1,6 +1,6 @@
 # BRA
 
- [![Latest Version](https://img.shields.io/crates/v/bra.svg)](https://crates.io/crates/bra) [![Build Status](https://travis-ci.org/Enet4/bra-rs.svg?branch=master)](https://travis-ci.org/Enet4/bra-rs) [![dependency status](https://deps.rs/repo/github/Enet4/bra-rs/status.svg)](https://deps.rs/repo/github/Enet4/bra-rs)
+ [![Latest Version](https://img.shields.io/crates/v/bra.svg)](https://crates.io/crates/bra) [![Build Status](https://travis-ci.org/Enet4/bra-rs.svg?branch=master)](https://travis-ci.org/Enet4/bra-rs) [![dependency status](https://deps.rs/repo/github/Enet4/bra-rs/status.svg)](https://deps.rs/repo/github/Enet4/bra-rs) ![Minimum Rust Version 1.31](https://img.shields.io/badge/Minimum%20Rust%20Version-1.31-green.svg)
 
 Buffered Random Access (BRA) provides easy random memory access to a sequential source of data in Rust. This is achieved by eagerly retaining all memory read from a given source.
 
