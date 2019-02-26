@@ -9,6 +9,9 @@
 //! a random memory access descriptor. The amount of data read does
 //! not influence the relative index of the data unless the method
 //! [`clear`] is called.
+//! 
+//! [`GreedyBufReader`]: ./struct.GreedyBufReader.html
+//! [`clear`]: ./struct.GreedyBufReader.html#method.clear
 //!
 //! ```
 //! # use bra::GreedyBufReader;
@@ -73,8 +76,7 @@ where
     /// the specified buffer capacity.
     /// 
     /// The buffer will be able to read approximately `capacity` bytes without
-    /// reallocating, although in practice this may choose to prefetch more
-    /// bytes.
+    /// reallocating.
     pub fn with_capacity(src: R, capacity: usize) -> Self {
         GreedyBufReader {
             inner: src,
@@ -84,6 +86,8 @@ where
     }
 
     /// Retrieves the internal reader, discarding the buffer in the process.
+    ///
+    /// Note that any leftover data in the internal buffer is lost.
     pub fn into_inner(self) -> R {
         self.inner
     }
