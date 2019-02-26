@@ -143,12 +143,15 @@ where
         }
     }
 
-    /// Clears all memory of past reads. The reader will behave as if freshly
-    /// constructed, save for already prefetched data, so that no bytes are
-    /// lost. The following byte being read becomes the byte at index `#0`.
+    /// Clears all memory of past reads, shrinking or freeing the buffer in the
+    /// process. The reader will behave as if freshly constructed, save for
+    /// already prefetched data, so that no bytes are lost. The following byte
+    /// being read becomes the byte at index `#0`.
     pub fn clear(&mut self) {
         if self.consumed < self.buf.len() {
             self.buf = self.buf[self.consumed..].to_vec();
+        } else {
+            self.buf = Vec::new();
         }
         self.consumed = 0;
     }
@@ -306,7 +309,7 @@ mod tests {
 
         assert_eq!(read.get(0).unwrap(), 1);
         assert_eq!(read.get(8).unwrap(), 9);
-        assert_eq!(read.get(17).unwrap(), 50);
+        assert_eq!(read.get(16).unwrap(), 50);
 
         let mut chunk = [0; 8];
         read.read_exact(&mut chunk).unwrap();
@@ -314,19 +317,19 @@ mod tests {
 
         assert_eq!(read.get(0).unwrap(), 1);
         assert_eq!(read.get(8).unwrap(), 9);
-        assert_eq!(read.get(17).unwrap(), 50);
+        assert_eq!(read.get(16).unwrap(), 50);
 
         read.clear();
 
         assert_eq!(read.get(0).unwrap(), 9);
         assert_eq!(read.get(8).unwrap(), 50);
-        assert!(read.get(17).is_err());
+        assert!(read.get(16).is_err());
 
         read.read_exact(&mut chunk).unwrap();
         assert_eq!(chunk, [9, 10, 11, 12, 13, 14, 15, 16]);
 
         assert_eq!(read.get(0).unwrap(), 9);
         assert_eq!(read.get(8).unwrap(), 50);
-        assert!(read.get(17).is_err());
+        assert!(read.get(16).is_err());
     }
 }
