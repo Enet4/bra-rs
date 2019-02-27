@@ -6,13 +6,14 @@ Buffered Random Access (BRA) provides easy random memory access to a sequential 
 
 ## Example
 
+Please see the [documentation](https://docs.rs/bra) for additional info.
 
 ```rust
 use std::io::Read;
-use bra::GreedyBufRead;
+use bra::GreedyBufReader;
 
 let reader = get_reader();
-let mut reader = GreedyBufRead::new(reader);
+let mut reader = GreedyBufReader::new(reader);
 
 // random access to bytes!
 let k: u8 = reader.get(12)?;
