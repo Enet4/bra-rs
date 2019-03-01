@@ -10,10 +10,10 @@ Please see the [documentation](https://docs.rs/bra) for additional info.
 
 ```rust
 use std::io::Read;
-use bra::GreedyBufReader;
+use bra::GreedyAccessReader;
 
 let reader = get_reader();
-let mut reader = GreedyBufReader::new(reader);
+let mut reader = GreedyAccessReader::new(reader);
 
 // random access to bytes!
 let k: u8 = reader.get(12)?;
