@@ -11,3 +11,9 @@ license = "MIT/Apache-2.0"
 readme = "README.md"
 
 [dependencies]
+
+[badges]
+
+[badges.travis-ci]
+branch = "master"
+repository = "Enet4/bra-rs"
