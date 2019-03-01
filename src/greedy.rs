@@ -60,6 +60,11 @@ where
         self.buf
     }
 
+    /// Retrieves the internal reader and buffer in their current state.
+    pub fn into_parts(self) -> (R, Vec<u8>) {
+        (self.inner, self.buf)
+    }
+
     /// Fetches a single byte from the buffered data source. 
     pub fn get(&mut self, index: usize) -> IoResult<u8> {
         if let Some(v) = self.buf.get(index) {
