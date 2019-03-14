@@ -197,17 +197,21 @@ where
         }
 
         let b = self.buf.len();
-        unsafe {
+        let buf = unsafe {
             // safe because it's within the buffer's limits
             // and we won't be reading uninitialized memory
-            self.buf.set_len(self.buf.capacity());
-        }
-        let buf = &mut self.buf[b..];
+            std::slice::from_raw_parts_mut(
+                self.buf.as_mut_ptr().offset(b as isize),
+                self.buf.capacity() - b)
+        };
 
         match self.inner.read(buf) {
             Ok(o) => {
-                // take off the unwritten portion
-                self.buf.truncate(b + o);
+                unsafe {
+                    // reset the size to include the written portion,
+                    // safe because the extra data is initialized
+                    self.buf.set_len(b + o);
+                }
 
                 Ok(&self.buf[self.consumed..])
             }
