@@ -37,4 +37,4 @@
 //! ```
 
 mod greedy;
-pub use greedy::GreedyAccessReader;
+pub use crate::greedy::GreedyAccessReader;
