@@ -15,6 +15,7 @@ use std::ops::RangeBounds;
 /// [`std::io::BufReader`]: https://doc.rust-lang.org/std/io/struct.BufReader.html
 /// [`new`]: ./struct.GreedyAccessReader.html#method.new
 /// [`with_capacity`]: ./struct.GreedyAccessReader.html#method.with_capacity
+#[derive(Debug, Clone)]
 pub struct GreedyAccessReader<R> {
     inner: R,
     buf: Vec<u8>,
@@ -197,26 +198,14 @@ where
         }
 
         let b = self.buf.len();
-        let buf = unsafe {
-            // safe because it's within the buffer's limits
-            // and we won't be reading uninitialized memory
-            std::slice::from_raw_parts_mut(
-                self.buf.as_mut_ptr().add(b),
-                self.buf.capacity() - b)
-        };
+        self.buf.resize(self.buf.capacity(), 0);
+        let buf = &mut self.buf[b..];
+        let o = self.inner.read(buf)?;
 
-        match self.inner.read(buf) {
-            Ok(o) => {
-                unsafe {
-                    // reset the size to include the written portion,
-                    // safe because the extra data is initialized
-                    self.buf.set_len(b + o);
-                }
+        // truncate to exclude non-written portion
+        self.buf.truncate(b + o);
 
-                Ok(&self.buf[self.consumed..])
-            }
-            Err(e) => Err(e),
-        }
+        Ok(&self.buf[self.consumed..])
     }
 
     fn consume(&mut self, amt: usize) {
