@@ -181,7 +181,7 @@ where
         }
 
         let len = usize::min(to_read.len(), buf.len());
-        &mut buf[..len].copy_from_slice(&self.buf[self.consumed..self.consumed + len]);
+        buf[..len].copy_from_slice(&self.buf[self.consumed..self.consumed + len]);
         self.consume(len);
         Ok(len)
     }
@@ -201,7 +201,7 @@ where
             // safe because it's within the buffer's limits
             // and we won't be reading uninitialized memory
             std::slice::from_raw_parts_mut(
-                self.buf.as_mut_ptr().offset(b as isize),
+                self.buf.as_mut_ptr().add(b),
                 self.buf.capacity() - b)
         };
 
