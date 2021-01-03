@@ -4,12 +4,12 @@
 //! source to the beginning for multiple passes.
 //!
 //! # Examples
-//! 
+//!
 //! [`GreedyAccessReader`] can be either used as a buffered reader or as
 //! a random memory access descriptor. The amount of data read does
 //! not influence the relative index of the data unless the method
 //! [`clear`] is called.
-//! 
+//!
 //! [`GreedyAccessReader`]: ./struct.GreedyAccessReader.html
 //! [`clear`]: ./struct.GreedyAccessReader.html#method.clear
 //!
@@ -22,7 +22,7 @@
 //! # fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! let reader = get_reader();
 //! let mut reader = GreedyAccessReader::new(reader);
-//! 
+//!
 //! // random access to bytes!
 //! let k: u8 = reader.get(12)?;
 //! // random slicing!
